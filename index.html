@@ -1,12 +1,280 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vice Point — Open World 3D City</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مدل سه‌بعدی بطری چای</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: linear-gradient(to bottom, #f5f5f5, #e0e0e0); font-family: Tahoma, Arial; }
+        #info {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: #333;
+            font-size: 16px;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
+        }
+        canvas { display: block; }
+        .controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,255,255,0.9);
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        button {
+            padding: 8px 20px;
+            cursor: pointer;
+            background: #8B4513;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        button:hover { background: #A0522D; transform: scale(1.05); }
+        label { color: #555; font-size: 14px; }
+        input[type="range"] { width: 120px; }
+    </style>
+</head>
+<body>
+    <div id="info">🖱️ برای چرخش کلیک کنید و بکشید | اسکرول برای زوم</div>
+    
+    <div class="controls">
+        <button onclick="toggleRotation()">توقف/آغاز چرخش خودکار</button>
+        <label>شفافیت مایع: <input type="range" id="opacitySlider" min="0.3" max="1" step="0.1" value="0.85" onchange="updateOpacity(this.value)"></label>
+        <button onclick="resetView">بازنشانی视图</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <script>
+        let scene, camera, renderer, controls, bottleGroup, liquidMesh, autoRotate = true;
+
+        function init() {
+            // صحنه
+            scene = new THREE.Scene();
+            
+            // دوربین
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 2, 8);
+
+            // رندرر
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // کنترل‌ها
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 3;
+            controls.maxDistance = 15;
+
+            // نورپردازی
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+            backLight.position.set(-5, 5, -5);
+            scene.add(backLight);
+
+            // ساخت بطری
+            createBottle();
+
+            // زمین
+            const groundGeometry = new THREE.PlaneGeometry(20, 20);
+            const groundMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xcccccc, 
+                roughness: 0.8,
+                transparent: true,
+                opacity: 0.5
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -2.5;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            window.addEventListener('resize', onWindowResize, false);
+            animate();
+        }
+
+        function createBottle() {
+            bottleGroup = new THREE.Group();
+
+            // پروفیل دوبعدی بطری برای LatheGeometry
+            // نقاطی که شکل مقطع نصفه‌ی بطری را تشکیل می‌دهند
+            const points = [];
+            const segments = 32;
+            
+            // پایین پتالوئیدی (پایه گلباری shaped)
+            points.push(new THREE.Vector2(0, -2.5)); // مرکز پایین
+            points.push(new THREE.Vector2(1.2, -2.5)); // شعاع پایه
+            
+            // منحنی پایه به سمت بالا (شیب دار)
+            for(let i = 0; i <= 5; i++) {
+                let t = i / 5;
+                let y = -2.5 + t * 0.5;
+                let x = 1.2 + Math.sin(t * Math.PI * 0.5) * 0.2; // برجستگی پایه
+                points.push(new THREE.Vector2(x, y));
+            }
+            
+            // بدنه اصلی (استوانه‌ای با فرورفتگی‌های عمودی شبیه تصویر)
+            for(let i = 0; i <= 10; i++) {
+                let t = i / 10;
+                let y = -2.0 + t * 3.0; // از یِ -2 تا 1
+                // کمی منحنی برای واقع‌گرایی و شیارها
+                let wave = Math.sin(t * Math.PI * 6) * 0.03; // شیارهای ریز
+                let x = 1.35 + wave;
+                points.push(new THREE.Vector2(x, y));
+            }
+            
+            // شانه‌ی بطری (منحنی به سمت گردن)
+            for(let i = 0; i <= 8; i++) {
+                let t = i / 8;
+                let y = 1.0 + t * 1.2;
+                let x = 1.35 * (1 - Math.pow(t, 2) * 0.75); // باریک شدن
+                points.push(new THREE.Vector2(x, y));
+            }
+            
+            // گردن
+            for(let i = 0; i <= 4; i++) {
+                let t = i / 4;
+                let y = 2.2 + t * 0.8;
+                let x = 0.35;
+                points.push(new THREE.Vector2(x, y));
+            }
+            
+            // لب بالایی
+            points.push(new THREE.Vector2(0.42, 3.0));
+            points.push(new THREE.Vector2(0.42, 3.1));
+
+            // هندسه بدنه پلاستیکی (شفاف)
+            const bottleGeometry = new THREE.LatheGeometry(points, segments);
+            const bottleMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.3,
+                roughness: 0.1,
+                metalness: 0.0,
+                transmission: 0.9,
+                thickness: 0.5,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.1,
+                side: THREE.DoubleSide
+            });
+            
+            const bottleMesh = new THREE.Mesh(bottleGeometry, bottleMaterial);
+            bottleMesh.castShadow = true;
+            bottleGroup.add(bottleMesh);
+
+            // مایع قهوه‌ای داخل بطری
+            const liquidPoints = [
+                new THREE.Vector2(0, -2.3),
+                new THREE.Vector2(1.15, -2.3),
+                ...Array.from({length: 11}, (_, i) => {
+                    let t = i / 10;
+                    return new THREE.Vector2(
+                        1.28 + Math.sin(t * Math.PI * 6) * 0.02, 
+                        -2.3 + t * 2.9
+                    );
+                }),
+                ...Array.from({length: 9}, (_, i) => {
+                    let t = i / 8;
+                    return new THREE.Vector2(
+                        1.28 * (1 - Math.pow(t, 2) * 0.72), 
+                        0.6 + t * 1.1
+                    );
+                }),
+                new THREE.Vector2(0.32, 1.7)
+            ];
+            
+            const liquidGeometry = new THREE.LatheGeometry(liquidPoints, segments);
+            const liquidMaterial = new THREE.MeshPhysicalMaterial({
+                color: 0x8B4513, // رنگ قهوه‌ای تیره مثل چای یا سیب
+                transparent: true,
+                opacity: 0.85,
+                roughness: 0.1,
+                metalness: 0.1,
+                transmission: 0.2,
+                thickness: 1.0,
+                side: THREE.DoubleSide
+            });
+            
+            liquidMesh = new THREE.Mesh(liquidGeometry, liquidMaterial);
+            bottleGroup.add(liquidMesh);
+
+            // درب سفید
+            const capGeometry = new THREE.CylinderGeometry(0.45, 0.45, 0.6, 32);
+            const capMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xf0f0f0,
+                roughness: 0.5
+            });
+            const cap = new THREE.Mesh(capGeometry, capMaterial);
+            cap.position.y = 3.4;
+            cap.castShadow = true;
+            bottleGroup.add(cap);
+
+            // لبه درب (قسمت زیرین سفید)
+            const capRingGeometry = new THREE.CylinderGeometry(0.38, 0.42, 0.15, 32);
+            const capRing = new THREE.Mesh(capRingGeometry, capMaterial);
+            capRing.position.y = 3.05;
+            bottleGroup.add(capRing);
+
+            scene.add(bottleGroup);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if(autoRotate && bottleGroup) {
+                bottleGroup.rotation.y += 0.005;
+            }
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function toggleRotation() {
+            autoRotate = !autoRotate;
+        }
+
+        function updateOpacity(val) {
+            if(liquidMesh) {
+                liquidMesh.material.opacity = parseFloat(val);
+            }
+        }
+
+        function resetView() {
+            camera.position.set(0, 2, 8);
+            controls.reset();
+        }
+
+        init();
+    </script>
+</body>
 </html>
